@@ -6,13 +6,15 @@ import { XRButton } from 'three/addons/webxr/XRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { AxesHelper } from 'three';
 
 let camera, scene, renderer;
 let controller1, controller2;
 let controllerGrip1, controllerGrip2;
 
 // Physics
-let world, RAPIER;
+let world, RAPIER, eventQueue;
+const handleToMesh = new Map();
 
 let rigidBodies = [];
 let objects = [];
@@ -22,165 +24,94 @@ const velocity = new THREE.Vector3();
 
 let count = 0;
 
-// Rat stuff 
-
-let wheel, stickOne, stickTwo, stickThree;
-
 // functions don't need to return anything just keep stuff within scope of operations. 
 
-function animateRatWheel() {
-  if (wheel) {
-    wheel.rotation.x += 0.021;
-  }
-}
+const colors = ['white', 'black', 'red', 'green', 'blue']
+const groups = [0x000D0004, 0x000D0005, 0x000D0006, 0x000D0007, 0x000D0008]
 
-function addRatWheel() {
-  const loader = new GLTFLoader();
+function spawnBallRandom() {
+  if (objects.length > 100) return;
 
-  loader.load('./ratWheel.glb', (gltf) => {
-    const ratWheel = gltf.scene;
-
-    // Traverse the scene to get names and possibly apply custom methods
-    ratWheel.traverse((object) => {
-      if (object.isMesh) { // Check if the object is a mesh
-        //console.log('Mesh Name:', object.name); // Log the name of the mesh
-
-        // Example of applying a custom method
-        if (object.name === 'wheel') {
-          // Apply custom method or manipulation
-          object.material.opacity = 0.5;
-          object.material.transparent = true;
-          object.material.wireframe = true;
-
-          wheel = object;
-        }
-      }
-    });
-
-    scene.add(ratWheel);
-  }, undefined, function (error) {
-    console.error('An error happened during the loading process:', error);
-  });
-}
-
-function rat() {
-  const loader = new GLTFLoader();
-
-  loader.load('./rat.glb', (gltf) => {
-    const rat = gltf.scene;
-    rat.scale.multiplyScalar(2);
-    rat.rotateY(Math.PI / 2)
-    rat.position.set(0, 1.2, 0);
-    scene.add(rat);
-
-    addRatWheel();
-
-    // Check if there are animations
-    if (gltf.animations && gltf.animations.length) {
-      // Create an AnimationMixer to play the animations
-      const mixer = new THREE.AnimationMixer(rat);
-
-      // Play all animations
-      gltf.animations.forEach((clip) => {
-        const action = mixer.clipAction(clip);
-        action.play();
-      });
-
-      // Update the mixer on each frame
-      const clock = new THREE.Clock();
-      function animate() {
-        requestAnimationFrame(animate);
-
-        const delta = clock.getDelta(); // Clock is needed to find the delta time
-        mixer.update(delta); // Update the animation frames
-
-        renderer.render(scene, camera); // Re-render the scene
-      }
-
-      animate(); // Start the animation loop
-    }
-  }, undefined, function (error) {
-    console.error('An error happened during the loading process:', error);
-  });
-}
-function spawnBall() {
-
-  if (objects.length > 300) return;
-
-  const ballGeometry = new THREE.SphereGeometry(.5, 32, 32);
-  const ballMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  let level = Math.round(Math.random() * groups.length);
+  const group = groups[level];
+  const size = .5 + (level / 6);
+  const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
+  const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
+  ballMesh.userData.group = group;
+  ballMesh.userData.level = level;
   const x = Math.random() * 10 - 5;
   const z = Math.random() * 10 - 5;
-  const y = 3;
+  const y = 20;
 
   ballMesh.position.set(x, y, z);
   scene.add(ballMesh);
 
   // Add physics
   const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z));
-  world.createCollider(RAPIER.ColliderDesc.ball(1), ballBody);
+  const collider = world.createCollider(RAPIER.ColliderDesc.ball(size).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), ballBody);
 
-  rigidBodies.push(ballBody);
-  objects.push(ballMesh);
+  collider.setCollisionGroups(group);
+  collider.setSolverGroups(group);
+  ballMesh.userData.rigidBody = ballBody;
+
+  handleToMesh.set(ballBody.handle, ballMesh);
 }
 
-function makeBoardRandom() {
-  const groundGeometry = new THREE.PlaneGeometry(20, 20);
-  const groundMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
-  const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
-  groundMesh.rotation.x = -Math.PI / 2;
-  groundMesh.position.set(0, 0, 0);
-  scene.add(groundMesh);
+function spawnBall(level = 0) {
 
-  // Add physics for the ground
-  const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  world.createCollider(RAPIER.ColliderDesc.cuboid(10, 0.1, 10), groundBody);
+  if (objects.length > 100) return;
 
-  // Positions and colors for walls
-  const positions = [];
-  for (let i = 0; i < 11; i++) {
-    positions.push({ x: Math.random() * 15 - 7.5, y: .2, z: Math.random() * 15 - 7.5 });
-  }
+  const group = groups[level];
+  const size = .5 + (level / 6);
+  const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
+  const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
+  const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
+  ballMesh.userData.group = group;
+  ballMesh.userData.level = level;
+  const x = Math.random() * 10 - 5;
+  const z = Math.random() * 10 - 5;
+  const y = 20;
 
-  const colors = [0xff0000, 0x00ff00, 0x0000ff]; // Red, Green, Blue
+  ballMesh.position.set(x, y, z);
+  scene.add(ballMesh);
 
-  positions.forEach((pos, index) => {
-    // Randomly adjust angles
-    const angleY = Math.random() * Math.PI; // Random angle between 0 and π
-    const angleX = Math.random() * Math.PI; // Random angle between 0 and π
-    const angleZ = Math.random() * Math.PI; // Random angle between 0 and π
+  // Add physics
+  const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z));
+  const collider = world.createCollider(RAPIER.ColliderDesc.ball(size).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), ballBody);
 
-    // Wall dimensions
-    const wallThickness = 0.2;
-    const wallHeight = 3;
-    const wallLength = 20 + 2 * wallThickness;
+  collider.setCollisionGroups(group);
+  collider.setSolverGroups(group);
+  ballMesh.userData.rigidBody = ballBody;
 
-    // Create wall geometry and material
-    const wallGeometry = new THREE.BoxGeometry(wallLength, wallHeight, wallThickness);
-    const wallMaterial = new THREE.MeshBasicMaterial({ color: colors[index % colors.length], wireframe: true });
-    const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+  handleToMesh.set(ballBody.handle, ballMesh);
+}
 
-    // Set wall position and rotation
-    wallMesh.position.set(pos.x, pos.y, pos.z);
-    wallMesh.rotation.set(angleX, angleY, angleZ);
+function processEvents(eventQueue) {
 
-    // Add to scene
-    scene.add(wallMesh);
+  eventQueue.drainCollisionEvents((handle1, handle2, started) => {
+    if (started) {
 
-    // Create a THREE.Quaternion for the wall rotation
-    const quaternion = new THREE.Quaternion();
-    quaternion.setFromEuler(new THREE.Euler(angleX, angleY, angleZ, 'XYZ'));
+      //console.log('Collsion between', handle1, handle2);
 
-    // Add physics for walls
-    const wallBodyDesc = RAPIER.RigidBodyDesc.fixed()
-      .setTranslation(pos.x, pos.y, pos.z)
-      .setRotation({ x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w });
-    const wallBody = world.createRigidBody(wallBodyDesc);
-    world.createCollider(RAPIER.ColliderDesc.cuboid(wallLength / 2, wallHeight / 2, wallThickness / 2), wallBody);
+      let a = handleToMesh.get(handle1);
+      let b = handleToMesh.get(handle2);
+
+      if (a.userData.group == b.userData.group) {
+        scene.remove(a)
+        scene.remove(b)
+        world.removeCollider(handle1, true);
+        world.removeCollider(handle2, true);
+        let nextLevel = a.userData.level + 1;
+        if (nextLevel == groups.length) {
+          console.log("hi");
+          nextLevel = 1
+        }
+        spawnBall(nextLevel)
+      }
+    }
   });
 }
-
 
 function makeBoard() {
   const groundGeometry = new THREE.PlaneGeometry(20, 20);  // Increased size for better area coverage
@@ -192,32 +123,35 @@ function makeBoard() {
 
   // Add physics for the ground
   const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  world.createCollider(RAPIER.ColliderDesc.cuboid(10, 0.1, 10), groundBody);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(10, 0, 10), groundBody);
 
   // Create walls
-  const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
+  const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x888888, wireframe: true });
   const wallThickness = 0.2;
-  const wallHeight = 3;
-  const positions = [
-    { x: 0, y: 1.5, z: 10 }, // North wall
-    { x: 0, y: 1.5, z: -10 }, // South wall
-    { x: 10, y: 1.5, z: 10 },  // East wall
-    { x: -5, y: 1.5, z: 5 }  // West wall
-  ];
-  const sizes = [
-    { x: 20 + 2 * wallThickness, y: wallHeight, z: wallThickness }, // North and South walls
-    { x: wallThickness, y: wallHeight, z: 20 + 2 * wallThickness }  // East and West walls
+  const wallHeight = 10;
+  const wallPositions = [
+    { x: 0, y: wallHeight / 2, z: 10 / 2 }, // North wall
+    { x: 10 / 2, y: wallHeight / 2, z: 0 },  // East wall
+    { x: 0, y: wallHeight / 2, z: -10 / 2 }, // South wall
+    { x: -10 / 2, y: wallHeight / 2, z: 0 }  // West wall
   ];
 
-  positions.forEach((pos, index) => {
-    const wallGeometry = new THREE.BoxGeometry(sizes[index % 2].x, sizes[index % 2].y, sizes[index % 2].z);
+  const wallSizes = [
+    { x: 20, y: wallHeight, z: 0 }, // North and South walls
+    { x: 0, y: wallHeight, z: 20 }  // East and West walls
+  ];
+
+  wallPositions.forEach((pos, index) => {
+    const wallGeometry = new THREE.BoxGeometry(wallSizes[index % 2].x, wallSizes[index % 2].y, wallSizes[index % 2].z);
     const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
     wallMesh.position.set(pos.x, pos.y, pos.z);
     scene.add(wallMesh);
 
     // Add physics for walls
-    const wallBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    world.createCollider(RAPIER.ColliderDesc.cuboid(sizes[index % 2].x / 2, sizes[index % 2].y / 2, sizes[index % 2].z / 2), wallBody, new RAPIER.Vector3(pos.x, pos.y, pos.z));
+    const wallBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z));
+    const wallCollider = world.createCollider(RAPIER.ColliderDesc.cuboid(wallSizes[index % 2].x / 2, wallSizes[index % 2].y / 2, wallSizes[index % 2].z / 2), wallBody, new RAPIER.Vector3(pos.x, pos.y, pos.z));
+    wallCollider.setCollisionGroups(0x110D0004);
+    wallCollider.setSolverGroups(0x110D0004);
   });
 }
 
@@ -225,35 +159,26 @@ import('@dimforge/rapier3d').then(rapeirModel => {
 
   init();
 
-  rat();
   // Use the RAPIER module here.
   let gravity = { x: 0.0, y: -9.81, z: 0.0 };
   RAPIER = rapeirModel;
   world = new RAPIER.World(gravity);
+  eventQueue = new RAPIER.EventQueue(true);
 
-  console.log("world", world);
-
-  makeBoardRandom();
+  makeBoard();
   // Spawn a ball every second
-  setInterval(spawnBall, 1000);
+  setInterval(spawnBallRandom, 1000);
 
 })
-
 
 function init() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x505050);
+  scene.add(new AxesHelper(2));
 
-  camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50);
+  camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
   camera.position.set(0, 15, 25);
-
-  room = new THREE.LineSegments(
-    new BoxLineGeometry(6, 6, 6, 10, 10, 10),
-    new THREE.LineBasicMaterial({ color: 0x808080 })
-  );
-  room.geometry.translate(0, 3, 0);
-  scene.add(room);
 
   scene.add(new THREE.HemisphereLight(0xbbbbbb, 0x888888, 3));
 
@@ -407,7 +332,6 @@ function animate() {
   handleController(controller2);
 
   updatePhysics();
-  animateRatWheel();
 
   renderer.render(scene, camera);
 
@@ -415,20 +339,18 @@ function animate() {
 
 function updatePhysics() {
   if (world) {
-    world.step()
+    world.step(eventQueue);
+    processEvents(eventQueue);
 
-    for (let i = 0; i < rigidBodies.length; i++) {
-
-      const rigidBody = rigidBodies[i];
-      const mesh = objects[i];
+    handleToMesh.forEach((mesh, key) => {
+      let rigidBody = mesh.userData.rigidBody;
 
       if (rigidBody.bodyType() == 0) {
 
         let position = rigidBody.translation();
 
         mesh.position.copy(position);
-
       }
-    }
+    })
   }
 }
