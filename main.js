@@ -21,7 +21,7 @@ let objects = [];
 let room, spheres, physics;
 const velocity = new THREE.Vector3();
 
-let gameCout = 0;
+let gameCount = 0;
 
 let count = 0;
 
@@ -99,6 +99,11 @@ function spawnBall(level = 0, middlePosition = null) {
   handleToMesh.set(ballBody.handle, ballMesh);
 }
 
+function processGameCount(type) {
+  gameCount += type + 1;
+  console.log(gameCount)
+}
+
 function processEvents(eventQueue) {
   const objectsToRemove = new Set();
   const objectsToSpawn = [];
@@ -116,6 +121,8 @@ function processEvents(eventQueue) {
       if (a.userData.type === b.userData.type) {
         objectsToRemove.add({ mesh: a, handle: handle1 });
         objectsToRemove.add({ mesh: b, handle: handle2 });
+
+        processGameCount(a.userData.level);
 
         let nextLevel = a.userData.level + 1;
         if (nextLevel === groups.length) {
@@ -198,7 +205,7 @@ import('@dimforge/rapier3d').then(rapeirModel => {
 
   makeBoard();
   // Spawn a ball every second
-  setInterval(spawnBallRandom, 100);
+  setInterval(spawnBallRandom, 500);
 
 })
 
