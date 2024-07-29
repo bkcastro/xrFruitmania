@@ -55,7 +55,9 @@ function spawnBallRandom() {
 
   collider.setCollisionGroups(group);
   collider.setSolverGroups(group);
+
   ballMesh.userData.rigidBody = ballBody;
+  ballMesh.userData.collider = collider;
 
   handleToMesh.set(ballBody.handle, ballMesh);
 }
@@ -90,7 +92,9 @@ function spawnBall(level = 0, middlePosition = null) {
 
   collider.setCollisionGroups(group);
   collider.setSolverGroups(group);
+
   ballMesh.userData.rigidBody = ballBody;
+  ballMesh.userData.collider = collider;
 
   handleToMesh.set(ballBody.handle, ballMesh);
 }
@@ -127,7 +131,9 @@ function processEvents(eventQueue) {
   // Process removals outside of the collision event loop
   objectsToRemove.forEach(({ mesh, handle }) => {
     scene.remove(mesh);
-    world.removeCollider(handle);
+    world.removeCollider(mesh.userData.collider);
+    world.removeRigidBody(mesh.userData.rigidBody);
+
     handleToMesh.delete(handle);
   });
 
@@ -192,7 +198,7 @@ import('@dimforge/rapier3d').then(rapeirModel => {
 
   makeBoard();
   // Spawn a ball every second
-  setInterval(spawnBallRandom, 1000);
+  setInterval(spawnBallRandom, 100);
 
 })
 
