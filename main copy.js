@@ -6,6 +6,7 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { AxesHelper } from 'three';
+import next from 'next';
 
 let camera, scene, renderer;
 let controller1, controller2;
@@ -21,7 +22,8 @@ let objects = [];
 let room, spheres, physics;
 const velocity = new THREE.Vector3();
 
-let gameCout = 0;
+// Counting is one to one wih the rank of the fruit 
+let gameCount = 0;
 
 let count = 0;
 
@@ -62,6 +64,7 @@ function spawnBallRandom() {
 
 function spawnBall(level = 0, middlePosition = null) {
 
+  console.log("hi")
   const group = groups[level];
   const size = .5 + (level / 6);
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
@@ -73,7 +76,7 @@ function spawnBall(level = 0, middlePosition = null) {
 
   const newPosition = new THREE.Vector3();
 
-  if (middlePosition == null) {
+  if (middlePosition != null) {
     newPosition.x = Math.random() * 10 - 5;
     newPosition.z = Math.random() * 10 - 5;
     newPosition.y = 20;
@@ -95,47 +98,54 @@ function spawnBall(level = 0, middlePosition = null) {
   handleToMesh.set(ballBody.handle, ballMesh);
 }
 
+function updateGameCount(type) {
+
+  switch (type) {
+    case 'white': gameCount += 1; break;
+    case 'black': gameCount += 2; break;
+    case 'red': gameCount += 3; break;
+    case 'green': gameCount += 4; break;
+    case 'blue': gameCount += 5; break;
+    default: // do nun  
+  }
+
+  console.log("game count: ", gameCount);
+}
+
 function processEvents(eventQueue) {
-  const objectsToRemove = new Set();
-  const objectsToSpawn = [];
 
   eventQueue.drainCollisionEvents((handle1, handle2, started) => {
     if (started) {
-      const a = handleToMesh.get(handle1);
-      const b = handleToMesh.get(handle2);
 
-      if (!a || !b) {
-        console.warn('Collision detected for unknown object');
-        return;
-      }
+      let a = handleToMesh.get(handle1);
+      let b = handleToMesh.get(handle2);
+      console.log("hii")
 
-      if (a.userData.type === b.userData.type) {
-        objectsToRemove.add({ mesh: a, handle: handle1 });
-        objectsToRemove.add({ mesh: b, handle: handle2 });
+      if (a.userData.type == b.userData.type) {
+        console.log("hiiii")
+        scene.remove(a)
+        scene.remove(b)
+        world.removeCollider(handle1, true);
+        world.removeCollider(handle2, true);
+        handleToMesh.delete(handle1);
+        handleToMesh.delete(handle2);
+
+        // apply the gameCount 
+        updateGameCount(a.userData.type);
 
         let nextLevel = a.userData.level + 1;
-        if (nextLevel === groups.length) {
-          nextLevel = 0;
+        if (nextLevel == types.length) {
+          nextLevel = 1
         }
 
-        const middlePoint = new THREE.Vector3().addVectors(a.position, b.position).multiplyScalar(0.5);
-        objectsToSpawn.push({ level: nextLevel, position: middlePoint });
+        const middlePoint = new THREE.Vector3();
+        middlePoint.addVectors(a.position, b.position).multiplyScalar(0.5);
+        // console.log(middlePoint);
+        // spawnBall(nextLevel, middlePoint);
+
       }
     }
   });
-
-  // Process removals outside of the collision event loop
-  objectsToRemove.forEach(({ mesh, handle }) => {
-    scene.remove(mesh);
-    world.removeCollider(handle);
-    handleToMesh.delete(handle);
-  });
-
-  // Spawn new objects
-  objectsToSpawn.forEach(({ level, position }) => {
-    spawnBall(level, position);
-  });
-
 }
 
 function makeBoard() {

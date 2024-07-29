@@ -6,10 +6,11 @@ import path from 'path';
 export default defineConfig({
     plugins: [wasm()],
     server: {
-        host: '0.0.0.0', // Bind to all network interfaces
-        https: {
-            key: fs.readFileSync(path.resolve(__dirname, 'key.pem')),
-            cert: fs.readFileSync(path.resolve(__dirname, 'cert.pem'))
-        }
+        port: 3000,
+        // host: '0.0.0.0', // Bind to all network interfaces
+        // https: {
+        //     key: fs.readFileSync(path.resolve(__dirname, 'key.pem')),
+        //     cert: fs.readFileSync(path.resolve(__dirname, 'cert.pem'))
+        // }
     }
 });
