@@ -6,6 +6,13 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { AxesHelper } from 'three';
+import Stats from 'three/examples/jsm/libs/stats.module.js';
+
+// Create a Stats object
+const stats = new Stats();
+
+// Add the stats panel to the document
+document.body.appendChild(stats.dom);
 
 let camera, scene, renderer;
 let controller1, controller2;
@@ -14,6 +21,9 @@ let controllerGrip1, controllerGrip2;
 // Physics
 let world, RAPIER, eventQueue;
 const handleToMesh = new Map();
+
+// gameHook 
+let lines = [];
 
 let rigidBodies = [];
 let objects = [];
@@ -27,15 +37,15 @@ let count = 0;
 
 // functions don't need to return anything just keep stuff within scope of operations. 
 
-const colors = ['white', 'black', 'red', 'green', 'blue']
-const groups = [0x000D0004, 0x000D0005, 0x000D0006, 0x000D0007, 0x000D0008]
+const colors = ['white', 'black', 'red', 'green', 'blue', 'orange', 'purple']
+const groups = [0x000D0004, 0x000D0005, 0x000D0006, 0x000D0007, 0x000D0008, 0x100D0009, 0x100D0029]
 
 function spawnBallRandom() {
 
   if (scene.children.length > 50) return;
   let level = Math.floor(Math.random() * groups.length);
   const group = groups[level];
-  const size = .5 + (level / 6);
+  const size = .5 + (level / 4);
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
   const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
@@ -65,7 +75,7 @@ function spawnBallRandom() {
 function spawnBall(level = 0, middlePosition = null) {
 
   const group = groups[level];
-  const size = .5 + (level / 6);
+  const size = .5 + (level / 4);
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
   const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
@@ -105,7 +115,7 @@ function processGameCount(type) {
 }
 
 function processEvents(eventQueue) {
-  const objectsToRemove = new Set();
+  const objectsSeen = new Set();
   const objectsToSpawn = [];
 
   eventQueue.drainCollisionEvents((handle1, handle2, started) => {
@@ -119,29 +129,31 @@ function processEvents(eventQueue) {
       }
 
       if (a.userData.type === b.userData.type) {
-        objectsToRemove.add({ mesh: a, handle: handle1 });
-        objectsToRemove.add({ mesh: b, handle: handle2 });
 
-        processGameCount(a.userData.level);
+        if (!objectsSeen.has(a) && !objectsSeen.has(b)) {
 
-        let nextLevel = a.userData.level + 1;
-        if (nextLevel === groups.length) {
-          nextLevel = 0;
+          objectsSeen.add(a);
+          objectsSeen.add(b);
+
+          // fuck it why not futures of javascript 
+          a.userData.handle = handle1;
+          b.userData.handle = handle2;
+
+          const middlePoint = new THREE.Vector3();
+          middlePoint.addVectors(a.position, b.position).multiplyScalar(0.5);
+          console.log(middlePoint)
+          objectsToSpawn.push({ level: a.userData.level, position: middlePoint })
         }
-
-        const middlePoint = new THREE.Vector3().addVectors(a.position, b.position).multiplyScalar(0.5);
-        objectsToSpawn.push({ level: nextLevel, position: middlePoint });
       }
     }
   });
 
   // Process removals outside of the collision event loop
-  objectsToRemove.forEach(({ mesh, handle }) => {
-    scene.remove(mesh);
+  objectsSeen.forEach((mesh) => {
     world.removeCollider(mesh.userData.collider);
     world.removeRigidBody(mesh.userData.rigidBody);
-
-    handleToMesh.delete(handle);
+    handleToMesh.delete(mesh.userData.handle);
+    scene.remove(mesh);
   });
 
   // Spawn new objects
@@ -149,6 +161,54 @@ function processEvents(eventQueue) {
     spawnBall(level, position);
   });
 
+}
+
+function createLineWithJoints(world, startPosition, segmentLength, numSegments) {
+  const bodies = [];
+  const joints = [];
+
+  // Create rigid bodies and Three.js lines
+  for (let i = 0; i < numSegments; i++) {
+    const position = {
+      x: startPosition.x + i * segmentLength,
+      y: startPosition.y,
+      z: startPosition.z
+    };
+
+    const rigidBodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(position.x, position.y, position.z);
+    const rigidBody = world.createRigidBody(rigidBodyDesc);
+
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(segmentLength / 2, 0.1, 0.1);
+    world.createCollider(colliderDesc, rigidBody);
+
+    bodies.push(rigidBody);
+
+    // Create Three.js line
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(segmentLength, 0, 0)
+    ]);
+    const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    lines.push(line);
+  }
+
+  // Create joints
+  for (let i = 0; i < numSegments - 1; i++) {
+    const bodyA = bodies[i];
+    const bodyB = bodies[i + 1];
+
+    const jointParams = RAPIER.JointData.spherical()
+      .localAnchor1(segmentLength / 2, 0, 0)
+      .localAnchor2(-segmentLength / 2, 0, 0);
+
+    const joint = world.createImpulseJoint(jointParams, bodyA, bodyB);
+    joints.push(joint);
+  }
+
+  return { bodies, joints };
 }
 
 function makeBoard() {
@@ -193,6 +253,15 @@ function makeBoard() {
   });
 }
 
+function makeGameHook() {
+  const startPosition = { x: 0, y: 5, z: 0 };
+  const segmentLength = 1;
+  const numSegments = 3;
+
+  const { bodies, joints } = createLineWithJoints(world, startPosition, segmentLength, numSegments);
+
+}
+
 import('@dimforge/rapier3d').then(rapeirModel => {
 
   init();
@@ -204,6 +273,8 @@ import('@dimforge/rapier3d').then(rapeirModel => {
   eventQueue = new RAPIER.EventQueue(true);
 
   makeBoard();
+  // makeGameHook();
+
   // Spawn a ball every second
   setInterval(spawnBallRandom, 500);
 
@@ -365,14 +436,14 @@ function handleController(controller) {
 }
 
 function animate() {
-
+  stats.begin();
   handleController(controller1);
   handleController(controller2);
 
   updatePhysics();
 
   renderer.render(scene, camera);
-
+  stats.end();
 }
 
 function updatePhysics() {
