@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
 import { XRButton } from 'three/addons/webxr/XRButton.js';
@@ -7,6 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { AxesHelper } from 'three';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
+import GameBoardDispather from '../gameBoards/GameBoardDispatcher';
 
 // Create a Stats object
 const stats = new Stats();
@@ -22,8 +22,11 @@ let controllerGrip1, controllerGrip2;
 let world, RAPIER, eventQueue;
 const handleToMesh = new Map();
 
+window.world = world;
+
 // gameHook 
-let lines = [];
+let hookPosition = new THREE.Vector3(0, 0, 0)
+let hook;
 
 let rigidBodies = [];
 let objects = [];
@@ -45,12 +48,12 @@ function spawnBallRandom() {
   if (scene.children.length > 50) return;
   let level = Math.floor(Math.random() * groups.length);
   const group = groups[level];
-  const size = .5 + (level / 4);
+  const size = .5 + ((level + 1) / 4);
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
   const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
   ballMesh.userData.group = group;
-  ballMesh.userData.level = level;
+  ballMesh.userData.level = level + 1;
   ballMesh.userData.type = colors[level]
   const x = Math.random() * 10 - 5;
   const z = Math.random() * 10 - 5;
@@ -72,7 +75,11 @@ function spawnBallRandom() {
   handleToMesh.set(ballBody.handle, ballMesh);
 }
 
-function spawnBall(level = 0, middlePosition = null) {
+function spawnBall(level = -1, middlePosition = null) {
+
+  if (level === -1) {
+    level = Math.floor(Math.random() * groups.length);
+  }
 
   const group = groups[level];
   const size = .5 + (level / 4);
@@ -81,19 +88,16 @@ function spawnBall(level = 0, middlePosition = null) {
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
   ballMesh.userData.group = group;
   ballMesh.userData.level = level;
-  ballMesh.userData.type = colors[level]
 
   const newPosition = new THREE.Vector3();
 
   if (middlePosition == null) {
-    newPosition.x = Math.random() * 10 - 5;
-    newPosition.z = Math.random() * 10 - 5;
-    newPosition.y = 20;
+    newPosition.copy(hookPosition);
   } else {
     newPosition.copy(middlePosition);
   }
 
-  ballMesh.position.copy(middlePosition);
+  ballMesh.position.copy(newPosition);
   scene.add(ballMesh);
 
   // Add physics
@@ -109,9 +113,10 @@ function spawnBall(level = 0, middlePosition = null) {
   handleToMesh.set(ballBody.handle, ballMesh);
 }
 
-function processGameCount(type) {
-  gameCount += type + 1;
-  console.log(gameCount)
+
+function processGameCount(level) {
+  gameCount += Math.round(level / 2)
+  console.log("gameCount", gameCount);
 }
 
 function processEvents(eventQueue) {
@@ -128,7 +133,7 @@ function processEvents(eventQueue) {
         return;
       }
 
-      if (a.userData.type === b.userData.type) {
+      if (a.userData.level === b.userData.level) {
 
         if (!objectsSeen.has(a) && !objectsSeen.has(b)) {
 
@@ -154,65 +159,23 @@ function processEvents(eventQueue) {
     world.removeRigidBody(mesh.userData.rigidBody);
     handleToMesh.delete(mesh.userData.handle);
     scene.remove(mesh);
+    processGameCount(mesh.userData.level)
   });
 
   // Spawn new objects
   objectsToSpawn.forEach(({ level, position }) => {
-    spawnBall(level, position);
+
+    if (level + 1 < groups.length) {
+      spawnBall(level + 1, position);
+    }
+
   });
 
 }
 
-function createLineWithJoints(world, startPosition, segmentLength, numSegments) {
-  const bodies = [];
-  const joints = [];
 
-  // Create rigid bodies and Three.js lines
-  for (let i = 0; i < numSegments; i++) {
-    const position = {
-      x: startPosition.x + i * segmentLength,
-      y: startPosition.y,
-      z: startPosition.z
-    };
-
-    const rigidBodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
-    const rigidBody = world.createRigidBody(rigidBodyDesc);
-
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(segmentLength / 2, 0.1, 0.1);
-    world.createCollider(colliderDesc, rigidBody);
-
-    bodies.push(rigidBody);
-
-    // Create Three.js line
-    const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(segmentLength, 0, 0)
-    ]);
-    const material = new THREE.LineBasicMaterial({ color: 0xffffff });
-    const line = new THREE.Line(geometry, material);
-    scene.add(line);
-    lines.push(line);
-  }
-
-  // Create joints
-  for (let i = 0; i < numSegments - 1; i++) {
-    const bodyA = bodies[i];
-    const bodyB = bodies[i + 1];
-
-    const jointParams = RAPIER.JointData.spherical()
-      .localAnchor1(segmentLength / 2, 0, 0)
-      .localAnchor2(-segmentLength / 2, 0, 0);
-
-    const joint = world.createImpulseJoint(jointParams, bodyA, bodyB);
-    joints.push(joint);
-  }
-
-  return { bodies, joints };
-}
-
-function makeBoard() {
-  const groundGeometry = new THREE.PlaneGeometry(20, 20);  // Increased size for better area coverage
+function makeBoard(height = 20, width = 20) {
+  const groundGeometry = new THREE.PlaneGeometry(height, width);  // Increased size for better area coverage
   const groundMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
   const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
   groundMesh.rotation.x = -Math.PI / 2;
@@ -221,22 +184,22 @@ function makeBoard() {
 
   // Add physics for the ground
   const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  world.createCollider(RAPIER.ColliderDesc.cuboid(10, 0, 10), groundBody);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(height / 2, 0, width / 2), groundBody);
 
   // Create walls
   const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x888888, wireframe: true });
   const wallThickness = 0.2;
-  const wallHeight = 10;
+  const wallHeight = height / 2;
   const wallPositions = [
-    { x: 0, y: wallHeight / 2, z: 10 / 2 }, // North wall
-    { x: 10 / 2, y: wallHeight / 2, z: 0 },  // East wall
-    { x: 0, y: wallHeight / 2, z: -10 / 2 }, // South wall
-    { x: -10 / 2, y: wallHeight / 2, z: 0 }  // West wall
+    { x: 0, y: wallHeight / 2, z: wallHeight / 2 }, // North wall
+    { x: wallHeight / 2, y: wallHeight / 2, z: 0 },  // East wall
+    { x: 0, y: wallHeight / 2, z: -wallHeight / 2 }, // South wall
+    { x: -wallHeight / 2, y: wallHeight / 2, z: 0 }  // West wall
   ];
 
   const wallSizes = [
-    { x: 20, y: wallHeight, z: 0 }, // North and South walls
-    { x: 0, y: wallHeight, z: 20 }  // East and West walls
+    { x: height, y: wallHeight, z: 0 }, // North and South walls
+    { x: 0, y: wallHeight, z: width }  // East and West walls
   ];
 
   wallPositions.forEach((pos, index) => {
@@ -253,13 +216,46 @@ function makeBoard() {
   });
 }
 
-function makeGameHook() {
-  const startPosition = { x: 0, y: 5, z: 0 };
-  const segmentLength = 1;
-  const numSegments = 3;
+function makeHook() {
+  // Create a line
+  const material = new THREE.LineBasicMaterial({ color: 0x0000ff })
+  const points = [
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, .8, 0)
+  ]
+  const geometry = new THREE.BufferGeometry().setFromPoints(points)
+  hook = new THREE.Line(geometry, material)
+  hook.position.y = 12;
+  hookPosition.copy(hook.position)
+  scene.add(hook);
 
-  const { bodies, joints } = createLineWithJoints(world, startPosition, segmentLength, numSegments);
+  document.addEventListener('keydown', onKeyDown)
+}
 
+function onKeyDown(event) {
+  const step = 0.4;
+  switch (event.key) {
+    case 'ArrowLeft':
+      hookPosition.x -= step;
+      break;
+    case 'ArrowRight':
+      hookPosition.x += step;
+      break;
+    case 'ArrowUp':
+      hookPosition.z -= step;
+      break;
+    case 'ArrowDown':
+      hookPosition.z += step;
+      break;
+    case ' ': // Spacebar 
+      spawnBall();
+      break;
+  }
+  updateHookPosition();
+}
+
+function updateHookPosition() {
+  hook.position.set(hookPosition.x, hookPosition.y, hookPosition.z);
 }
 
 import('@dimforge/rapier3d').then(rapeirModel => {
@@ -272,11 +268,13 @@ import('@dimforge/rapier3d').then(rapeirModel => {
   world = new RAPIER.World(gravity);
   eventQueue = new RAPIER.EventQueue(true);
 
-  makeBoard();
-  // makeGameHook();
+  // add GameBoardDipatcher 
+
+  makeBoard()
+  makeHook()
 
   // Spawn a ball every second
-  setInterval(spawnBallRandom, 500);
+  //setInterval(spawnBallRandom, 500);
 
 })
 
@@ -285,6 +283,7 @@ function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x505050);
   scene.add(new AxesHelper(2));
+  // scene.scale.multiplyScalar(1 / 10);
 
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
   camera.position.set(0, 15, 25);
