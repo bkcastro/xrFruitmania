@@ -28,9 +28,6 @@ window.world = world;
 let hookPosition = new THREE.Vector3(0, 0, 0)
 let hook;
 
-let rigidBodies = [];
-let objects = [];
-
 let room, spheres, physics;
 const velocity = new THREE.Vector3();
 
@@ -41,20 +38,22 @@ let count = 0;
 // functions don't need to return anything just keep stuff within scope of operations. 
 
 const colors = ['white', 'black', 'red', 'green', 'blue', 'orange', 'purple']
-const groups = [0x000D0004, 0x000D0005, 0x000D0006, 0x000D0007, 0x000D0008, 0x100D0009, 0x100D0029]
+const groups = [0x100D0129, 0x100D0229, 0x100D0329, 0x100D0429, 0x100D0529, 0x100D0999, 0x100D0666]
+const sizes = [.01, .02, .03, .04, .05, .06, .07]
 
 function spawnBallRandom() {
 
   if (scene.children.length > 50) return;
   let level = Math.floor(Math.random() * groups.length);
   const group = groups[level];
-  const size = .5 + ((level + 1) / 4);
+  const size = sizes[level]
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
   const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
   ballMesh.userData.group = group;
   ballMesh.userData.level = level + 1;
   ballMesh.userData.type = colors[level]
+
   const x = Math.random() * 10 - 5;
   const z = Math.random() * 10 - 5;
   const y = 20;
@@ -82,7 +81,7 @@ function spawnBall(level = -1, middlePosition = null) {
   }
 
   const group = groups[level];
-  const size = .5 + (level / 4);
+  const size = sizes[level] + 0.06
   const ballGeometry = new THREE.SphereGeometry(size, 32, 32);
   const ballMaterial = new THREE.MeshBasicMaterial({ color: colors[level] });
   const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
@@ -112,7 +111,6 @@ function spawnBall(level = -1, middlePosition = null) {
 
   handleToMesh.set(ballBody.handle, ballMesh);
 }
-
 
 function processGameCount(level) {
   gameCount += Math.round(level / 2)
@@ -173,33 +171,33 @@ function processEvents(eventQueue) {
 
 }
 
-
-function makeBoard(height = 20, width = 20) {
-  const groundGeometry = new THREE.PlaneGeometry(height, width);  // Increased size for better area coverage
+function makeBoard(length = 2, width = .3, height = 1, position = new THREE.Vector3(0, 0, 0)) {
+  const groundGeometry = new THREE.PlaneGeometry(length, width);  // Increased size for better area coverage
   const groundMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
   const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
   groundMesh.rotation.x = -Math.PI / 2;
-  groundMesh.position.set(0, 0, 0);  // Centered at origin for easier boundary calculations
+  groundMesh.position.copy(position);  // Centered at origin for easier boundary calculations
   scene.add(groundMesh);
 
   // Add physics for the ground
-  const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  world.createCollider(RAPIER.ColliderDesc.cuboid(height / 2, 0, width / 2), groundBody);
+  const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z));
+  const groundCollider = world.createCollider(RAPIER.ColliderDesc.cuboid(length / 2, 0, width / 2), groundBody);
+  groundCollider.setCollisionGroups(0x110D0024);
+  groundCollider.setSolverGroups(0x110D0024);
 
   // Create walls
   const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x888888, wireframe: true });
-  const wallThickness = 0.2;
-  const wallHeight = height / 2;
+
   const wallPositions = [
-    { x: 0, y: wallHeight / 2, z: wallHeight / 2 }, // North wall
-    { x: wallHeight / 2, y: wallHeight / 2, z: 0 },  // East wall
-    { x: 0, y: wallHeight / 2, z: -wallHeight / 2 }, // South wall
-    { x: -wallHeight / 2, y: wallHeight / 2, z: 0 }  // West wall
+    { x: position.x, y: position.y + length / 4, z: position.z + width / 2 }, // North wall
+    { x: position.x + length / 2, y: position.y + length / 4, z: position.z },  // East wall
+    { x: position.x, y: position.y + length / 4, z: position.z - width / 2 }, // South wall
+    { x: position.x - length / 2, y: position.y + length / 4, z: position.z }  // West wall
   ];
 
   const wallSizes = [
-    { x: height, y: wallHeight, z: 0 }, // North and South walls
-    { x: 0, y: wallHeight, z: width }  // East and West walls
+    { x: length, y: height, z: 0 }, // North and South walls
+    { x: 0, y: height, z: width }  // East and West walls
   ];
 
   wallPositions.forEach((pos, index) => {
@@ -211,8 +209,8 @@ function makeBoard(height = 20, width = 20) {
     // Add physics for walls
     const wallBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z));
     const wallCollider = world.createCollider(RAPIER.ColliderDesc.cuboid(wallSizes[index % 2].x / 2, wallSizes[index % 2].y / 2, wallSizes[index % 2].z / 2), wallBody, new RAPIER.Vector3(pos.x, pos.y, pos.z));
-    wallCollider.setCollisionGroups(0x110D0004);
-    wallCollider.setSolverGroups(0x110D0004);
+    wallCollider.setCollisionGroups(0x110D0024);
+    wallCollider.setSolverGroups(0x110D0024);
   });
 }
 
@@ -221,11 +219,11 @@ function makeHook() {
   const material = new THREE.LineBasicMaterial({ color: 0x0000ff })
   const points = [
     new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, .8, 0)
+    new THREE.Vector3(0, .25, 0)
   ]
   const geometry = new THREE.BufferGeometry().setFromPoints(points)
   hook = new THREE.Line(geometry, material)
-  hook.position.y = 12;
+  hook.position.y = 1;
   hookPosition.copy(hook.position)
   scene.add(hook);
 
@@ -233,7 +231,7 @@ function makeHook() {
 }
 
 function onKeyDown(event) {
-  const step = 0.4;
+  const step = 0.01;
   switch (event.key) {
     case 'ArrowLeft':
       hookPosition.x -= step;
@@ -282,12 +280,12 @@ function init() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x505050);
-  scene.add(new AxesHelper(2));
+  scene.add(new AxesHelper(1));
   // scene.scale.multiplyScalar(1 / 10);
 
-  camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
-  camera.position.set(0, 15, 25);
-
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
+  camera.position.set(2, 2, 2);
+  camera.lookAt(new THREE.Vector3(0, 0, 0))
   scene.add(new THREE.HemisphereLight(0xbbbbbb, 0x888888, 3));
 
   const light = new THREE.DirectionalLight(0xffffff, 3);
