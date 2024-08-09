@@ -6,7 +6,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { AxesHelper } from 'three';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
-import GameBoardDispather from '../gameBoards/GameBoardDispatcher';
 
 // Create a Stats object
 const stats = new Stats();
@@ -18,7 +17,7 @@ let camera, scene, renderer;
 let controller1, controller2;
 let controllerGrip1, controllerGrip2;
 
-// Physics
+// physics
 let world, RAPIER, eventQueue;
 const handleToMesh = new Map();
 
@@ -458,5 +457,7 @@ function updatePhysics() {
         mesh.position.copy(position);
       }
     })
+
+
   }
 }

@@ -2,7 +2,7 @@
 
 import * as THREE from 'three'
 
-// a GameBoard is a unique xrFruitMania map?level?playground?wtf is this . 
+// a GameBoard is a unique xrFruitMania map. 
 
 class GameBoard extends THREE.Group {
     constructor() {
