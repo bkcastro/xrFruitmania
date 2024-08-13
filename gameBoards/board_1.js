@@ -17,7 +17,7 @@ class Board_1 extends GameBoard {
         groundMesh.position.set(0, 0, 0);  // Centered at origin for easier boundary calculations
         this.add(groundMesh);
 
-        // Add physics for the ground
+        // Add physics to the ground
         const groundBody = window.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
         const groundCollider = window.world.createCollider(RAPIER.ColliderDesc.cuboid(1 / 4, 0, 1 / 4), groundBody);
 
